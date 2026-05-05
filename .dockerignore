@@ -1,0 +1,7 @@
+.git
+**/__pycache__
+**/.pytest_cache
+**/node_modules
+**/dist
+**/.venv
+**/.mypy_cache
