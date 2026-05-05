@@ -388,9 +388,25 @@ button:disabled {
   content: "";
 }
 
+.react-flow__node.mapping-column--selected {
+  color: #111827;
+  font-weight: 800;
+}
+
+.react-flow__node.mapping-column--selected::before {
+  border-color: #b45309;
+  background: #fbbf24;
+  box-shadow: 0 0 0 5px rgb(245 158 11 / 18%);
+}
+
 .react-flow__edge.mapping-edge path {
   stroke: #8aaeca;
   stroke-width: 1.5;
+}
+
+.react-flow__edge.mapping-edge--active path {
+  stroke: #f59e0b;
+  stroke-width: 2.5;
 }
 
 .spin {

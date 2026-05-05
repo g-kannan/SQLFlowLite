@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import {
   Background,
   Controls,
+  MarkerType,
   MiniMap,
   Position,
   ReactFlow,
@@ -78,6 +79,8 @@ const mappingGroupWidth = 360;
 const mappingColumnWidth = 316;
 const mappingColumnHeight = 28;
 const mappingHeaderHeight = 84;
+const lineageMarker = { type: MarkerType.ArrowClosed, color: '#4b5563' };
+const mappingMarker = { type: MarkerType.ArrowClosed, color: '#8aaeca' };
 
 function layoutGraph(lineageNodes: LineageNode[], lineageEdges: LineageEdge[]): { nodes: Node[]; edges: Edge[] } {
   const graph = new dagre.graphlib.Graph();
@@ -113,6 +116,7 @@ function layoutGraph(lineageNodes: LineageNode[], lineageEdges: LineageEdge[]): 
       target: edge.target,
       animated: true,
       className: 'lineage-edge',
+      markerEnd: lineageMarker,
     })),
   };
 }
@@ -349,7 +353,40 @@ function mappingColumnGraph(response: ParseResponse): { nodes: Node[]; edges: Ed
       target: edge.target,
       animated: false,
       className: 'mapping-edge',
+      markerEnd: mappingMarker,
     })),
+  };
+}
+
+function applyColumnSelection(nodes: Node[], edges: Edge[], selectedColumn: string | null) {
+  if (!selectedColumn) {
+    return { nodes, edges };
+  }
+
+  return {
+    nodes: nodes.map((node) => ({
+      ...node,
+      className:
+        node.id === selectedColumn && typeof node.className === 'string' && node.className.includes('mapping-column')
+          ? `${node.className} mapping-column--selected`
+          : node.className,
+    })),
+    edges: edges.map((edge) => {
+      if (edge.className !== 'mapping-edge') {
+        return edge;
+      }
+
+      const isConnected = edge.source === selectedColumn || edge.target === selectedColumn;
+      return {
+        ...edge,
+        animated: isConnected,
+        className: isConnected ? 'mapping-edge mapping-edge--active' : 'mapping-edge',
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: isConnected ? '#f59e0b' : '#8aaeca',
+        },
+      };
+    }),
   };
 }
 
@@ -495,6 +532,7 @@ function App() {
   const [status, setStatus] = useState('Ready');
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [selectedColumn, setSelectedColumn] = useState<string | null>(null);
 
   const parseSql = useCallback(async () => {
     setLoading(true);
@@ -560,12 +598,21 @@ function App() {
       return;
     }
 
-    const graph = layoutDisplayGraph(result, level, expandColumns);
+    const baseGraph = layoutDisplayGraph(result, level, expandColumns);
+    const graph = applyColumnSelection(baseGraph.nodes, baseGraph.edges, selectedColumn);
     setNodes(graph.nodes);
     setEdges(graph.edges);
     const unit = level === 'column' && !expandColumns ? 'groups' : level === 'column' ? 'mapped columns' : 'tables';
     setStatus(`${graph.nodes.length} ${unit}, ${graph.edges.length} dependencies`);
-  }, [expandColumns, level, result, setEdges, setNodes]);
+  }, [expandColumns, level, result, selectedColumn, setEdges, setNodes]);
+
+  const selectColumn = useCallback((_: React.MouseEvent, node: Node) => {
+    if (typeof node.className !== 'string' || !node.className.includes('mapping-column')) {
+      setSelectedColumn(null);
+      return;
+    }
+    setSelectedColumn((current) => (current === node.id ? null : node.id));
+  }, []);
 
   const errorMessages = useMemo(() => {
     if (!result?.errors.length) {
@@ -762,6 +809,8 @@ function App() {
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
+            onNodeClick={selectColumn}
+            onPaneClick={() => setSelectedColumn(null)}
             fitView
             fitViewOptions={{ padding: 0.25 }}
           >
