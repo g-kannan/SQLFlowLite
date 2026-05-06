@@ -409,6 +409,17 @@ button:disabled {
   stroke-width: 2.5;
 }
 
+.mapping-edge-path--active {
+  stroke: #f59e0b;
+  stroke-width: 2.5;
+}
+
+.mapping-edge-pulse {
+  fill: #f59e0b;
+  filter: drop-shadow(0 0 5px rgb(245 158 11 / 55%));
+  pointer-events: none;
+}
+
 .spin {
   animation: spin 0.85s linear infinite;
 }

@@ -2,13 +2,16 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import {
   Background,
+  BaseEdge,
   Controls,
   MarkerType,
   MiniMap,
   Position,
   ReactFlow,
   type Edge,
+  type EdgeProps,
   type Node,
+  getBezierPath,
   useEdgesState,
   useNodesState,
 } from '@xyflow/react';
@@ -81,6 +84,39 @@ const mappingColumnHeight = 28;
 const mappingHeaderHeight = 84;
 const lineageMarker = { type: MarkerType.ArrowClosed, color: '#4b5563' };
 const mappingMarker = { type: MarkerType.ArrowClosed, color: '#8aaeca' };
+
+function AnimatedMappingEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  markerEnd,
+}: EdgeProps) {
+  const [edgePath] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+
+  return (
+    <>
+      <BaseEdge id={id} path={edgePath} markerEnd={markerEnd} className="mapping-edge-path--active" />
+      <circle className="mapping-edge-pulse" r="5">
+        <animateMotion dur="1.1s" repeatCount="indefinite" path={edgePath} />
+      </circle>
+    </>
+  );
+}
+
+const edgeTypes = {
+  animatedMapping: AnimatedMappingEdge,
+};
 
 function layoutGraph(lineageNodes: LineageNode[], lineageEdges: LineageEdge[]): { nodes: Node[]; edges: Edge[] } {
   const graph = new dagre.graphlib.Graph();
@@ -379,8 +415,9 @@ function applyColumnSelection(nodes: Node[], edges: Edge[], selectedColumn: stri
       const isConnected = edge.source === selectedColumn || edge.target === selectedColumn;
       return {
         ...edge,
-        animated: isConnected,
+        animated: false,
         className: isConnected ? 'mapping-edge mapping-edge--active' : 'mapping-edge',
+        type: isConnected ? 'animatedMapping' : undefined,
         markerEnd: {
           type: MarkerType.ArrowClosed,
           color: isConnected ? '#f59e0b' : '#8aaeca',
@@ -811,6 +848,7 @@ function App() {
             onEdgesChange={onEdgesChange}
             onNodeClick={selectColumn}
             onPaneClick={() => setSelectedColumn(null)}
+            edgeTypes={edgeTypes}
             fitView
             fitViewOptions={{ padding: 0.25 }}
           >
