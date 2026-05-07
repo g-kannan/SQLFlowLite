@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.pytest_cache/
+node_modules/
+dist/
+.DS_Store
+*.pyc
+.playwright-mcp/
+*.png
