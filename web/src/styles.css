@@ -306,6 +306,15 @@ button:disabled {
   white-space: pre-line;
 }
 
+.react-flow__node.lineage-node--grouped {
+  cursor: pointer;
+}
+
+.react-flow__node.lineage-node--expanded {
+  border-color: #94a3b8;
+  box-shadow: 0 10px 24px rgb(15 23 42 / 12%);
+}
+
 .react-flow__node.lineage-node--source {
   border-left: 6px solid #0f766e;
 }

@@ -41,6 +41,8 @@ type LineageNode = {
   id: string;
   label: string;
   kind: 'source' | 'target' | 'intermediate' | 'result';
+  height?: number;
+  className?: string;
 };
 
 type LineageEdge = {
@@ -130,7 +132,7 @@ function layoutGraph(lineageNodes: LineageNode[], lineageEdges: LineageEdge[]): 
   graph.setGraph({ rankdir: 'LR', nodesep: 50, ranksep: 90 });
 
   lineageNodes.forEach((node) => {
-    graph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+    graph.setNode(node.id, { width: nodeWidth, height: node.height ?? nodeHeight });
   });
 
   lineageEdges.forEach((edge) => graph.setEdge(edge.source, edge.target));
@@ -139,15 +141,20 @@ function layoutGraph(lineageNodes: LineageNode[], lineageEdges: LineageEdge[]): 
   return {
     nodes: lineageNodes.map((node) => {
       const position = graph.node(node.id);
+      const height = node.height ?? nodeHeight;
       return {
         id: node.id,
         data: { label: node.label },
         position: {
           x: position.x - nodeWidth / 2,
-          y: position.y - nodeHeight / 2,
+          y: position.y - height / 2,
         },
         type: 'default',
-        className: `lineage-node lineage-node--${node.kind}`,
+        className: `lineage-node lineage-node--${node.kind}${node.className ? ` ${node.className}` : ''}`,
+        style: {
+          width: nodeWidth,
+          height,
+        },
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
       };
@@ -163,19 +170,24 @@ function layoutGraph(lineageNodes: LineageNode[], lineageEdges: LineageEdge[]): 
   };
 }
 
-function displayGraph(response: ParseResponse, level: LineageLevel, expandColumns: boolean) {
+function displayGraph(response: ParseResponse, level: LineageLevel, expandColumns: boolean, expandedGroups: Set<string>) {
   if (level === 'table') {
     return tableGraph(response);
   }
-  return expandColumns ? expandedColumnGraph(response) : groupedColumnGraph(response);
+  return expandColumns ? expandedColumnGraph(response) : groupedColumnGraph(response, expandedGroups);
 }
 
-function layoutDisplayGraph(response: ParseResponse, level: LineageLevel, expandColumns: boolean) {
+function layoutDisplayGraph(
+  response: ParseResponse,
+  level: LineageLevel,
+  expandColumns: boolean,
+  expandedGroups: Set<string>,
+) {
   if (level === 'column' && expandColumns) {
     return mappingColumnGraph(response);
   }
 
-  const rendered = displayGraph(response, level, expandColumns);
+  const rendered = displayGraph(response, level, expandColumns, expandedGroups);
   return layoutGraph(rendered.nodes, rendered.edges);
 }
 
@@ -249,7 +261,10 @@ function expandedColumnGraph(response: ParseResponse): { nodes: LineageNode[]; e
   };
 }
 
-function groupedColumnGraph(response: ParseResponse): { nodes: LineageNode[]; edges: LineageEdge[] } {
+function groupedColumnGraph(
+  response: ParseResponse,
+  expandedGroups: Set<string>,
+): { nodes: LineageNode[]; edges: LineageEdge[] } {
   const nodeKinds = new Map<string, LineageNode['kind']>();
   const columnCounts = new Map<string, Set<string>>();
   const edges = new Map<string, LineageEdge>();
@@ -296,11 +311,17 @@ function groupedColumnGraph(response: ParseResponse): { nodes: LineageNode[]; ed
   });
 
   return {
-    nodes: Array.from(nodeKinds, ([id, kind]) => ({
-      id,
-      label: `${tableLabel(id)}\n${columnCounts.get(id)?.size ?? 0} columns`,
-      kind,
-    })).sort(byId),
+    nodes: Array.from(nodeKinds, ([id, kind]) => {
+      const columns = Array.from(columnCounts.get(id) ?? []).sort();
+      const expanded = expandedGroups.has(id);
+      return {
+        id,
+        label: groupedNodeLabel(id, columns, expanded),
+        kind,
+        height: groupedNodeHeight(columns.length, expanded),
+        className: `lineage-node--grouped${expanded ? ' lineage-node--expanded' : ''}`,
+      };
+    }).sort(byId),
     edges: Array.from(edges.values()).sort(byId),
   };
 }
@@ -437,6 +458,30 @@ function mappingGroupHeight(columnCount: number) {
   return Math.max(132, mappingHeaderHeight + 20 + columnCount * 36);
 }
 
+function groupedNodeLabel(id: string, columns: string[], expanded: boolean) {
+  const columnCount = columns.length;
+  if (!expanded) {
+    return `${tableLabel(id)}\n+ ${columnCount} columns`;
+  }
+
+  const lines = [`${tableLabel(id)}`, `- ${columnCount} columns`];
+  columns.forEach((column) => {
+    lines.push(columnShortName(column));
+  });
+  return lines.join('\n');
+}
+
+function groupedNodeHeight(columnCount: number, expanded: boolean) {
+  if (!expanded) {
+    return nodeHeight;
+  }
+
+  const titleLines = 2;
+  const lineHeight = 18;
+  const padding = 24;
+  return Math.max(nodeHeight, padding + (titleLines + columnCount) * lineHeight);
+}
+
 function columnShortName(columnId: string) {
   const group = columnGroupId(columnId);
   const prefix = `${group}.`;
@@ -500,7 +545,7 @@ function exportGraph(response: ParseResponse, level: LineageLevel, expandColumns
   if (level === 'table') {
     return tableGraph(response);
   }
-  return expandColumns ? expandedColumnGraph(response) : groupedColumnGraph(response);
+  return expandColumns ? expandedColumnGraph(response) : groupedColumnGraph(response, new Set<string>());
 }
 
 function listExport(response: ParseResponse, level: LineageLevel) {
@@ -607,6 +652,7 @@ function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedColumn, setSelectedColumn] = useState<string | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set<string>());
 
   const parseSql = useCallback(async () => {
     setLoading(true);
@@ -621,6 +667,7 @@ function App() {
         throw new Error(`API returned ${response.status}`);
       }
       const data = (await response.json()) as ParseResponse;
+      setExpandedGroups(new Set());
       setResult(data);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Parsing failed');
@@ -654,6 +701,7 @@ function App() {
           throw new Error(`API returned ${response.status}`);
         }
         const data = (await response.json()) as ParseResponse;
+        setExpandedGroups(new Set());
         setResult(data);
         setSql(files.map((file) => `-- ${file.filename}\n${file.sql}`).join('\n\n'));
         setStatus(`${selected.length} files parsed`);
@@ -672,15 +720,28 @@ function App() {
       return;
     }
 
-    const baseGraph = layoutDisplayGraph(result, level, expandColumns);
+    const baseGraph = layoutDisplayGraph(result, level, expandColumns, expandedGroups);
     const graph = applyColumnSelection(baseGraph.nodes, baseGraph.edges, selectedColumn);
     setNodes(graph.nodes);
     setEdges(graph.edges);
     const unit = level === 'column' && !expandColumns ? 'groups' : level === 'column' ? 'mapped columns' : 'tables';
     setStatus(`${graph.nodes.length} ${unit}, ${graph.edges.length} dependencies`);
-  }, [expandColumns, level, result, selectedColumn, setEdges, setNodes]);
+  }, [expandColumns, expandedGroups, level, result, selectedColumn, setEdges, setNodes]);
 
   const selectColumn = useCallback((_: React.MouseEvent, node: Node) => {
+    if (level === 'column' && !expandColumns && node.data && typeof node.data === 'object' && 'label' in node.data) {
+      setExpandedGroups((current) => {
+        const next = new Set(current);
+        if (next.has(node.id)) {
+          next.delete(node.id);
+        } else {
+          next.add(node.id);
+        }
+        return next;
+      });
+      return;
+    }
+
     if (typeof node.className !== 'string' || !node.className.includes('mapping-column')) {
       setSelectedColumn(null);
       return;
