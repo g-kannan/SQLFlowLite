@@ -88,3 +88,39 @@ def test_column_lineage_preserves_cte_hops() -> None:
         "source": "SALES_DATAMART.SILVER.FACT_TERTIARY_SALES_INVOICE.SALE_QTY",
         "target": "dms_mop_base.MRP_AMOUNT",
     } in amount["edges"]
+
+
+def test_postgres_queries() -> None:
+    statements, errors = parse_lineage(
+        "SELECT * FROM a UNION SELECT * FROM b",
+        "postgres",
+    )
+    assert errors == []
+    assert len(statements) == 1
+    assert statements[0].sources == ["a", "b"]
+
+    statements, errors = parse_lineage(
+        "UPDATE target SET a = source.c FROM source WHERE target.id = source.id",
+        "postgres",
+    )
+    assert errors == []
+
+
+def test_parse_stored_procedure() -> None:
+    procedure_sql = """
+    CREATE OR REPLACE PROCEDURE public.sp_product_mart()
+     LANGUAGE plpgsql
+    AS $procedure$
+    BEGIN
+        INSERT INTO public.product_mart (product_id)
+        SELECT pp.id FROM source_odoo.product_product pp;
+    END;
+    $procedure$;
+    """
+    statements, errors = parse_lineage(procedure_sql, "postgres")
+    assert errors == []
+    assert len(statements) == 1
+    assert statements[0].targets == ["public.product_mart"]
+    assert statements[0].sources == ["source_odoo.product_product"]
+
+

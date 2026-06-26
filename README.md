@@ -15,11 +15,15 @@ can be viewed grouped by table/query result or expanded to individual columns.
 
 ## Run
 
+Start both frontend and backend together:
+
 ```powershell
 docker compose up --build
 ```
 
-Open http://localhost:5173.
+Open http://localhost:5173 after the containers are up.
+
+This Compose setup runs the API with Uvicorn reload and the web app with the Vite dev server, so source changes should appear without rebuilding the images.
 
 API health check:
 
@@ -34,7 +38,7 @@ Invoke-RestMethod http://localhost:8000/health
 ```json
 {
   "sql": "INSERT INTO mart.sales SELECT * FROM raw.orders",
-  "dialect": "spark",
+  "dialect": "postgres",
   "level": "column"
 }
 ```
@@ -43,7 +47,7 @@ Invoke-RestMethod http://localhost:8000/health
 
 ```json
 {
-  "dialect": "spark",
+  "dialect": "postgres",
   "level": "table",
   "files": [
     {

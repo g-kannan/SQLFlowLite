@@ -6,4 +6,5 @@ dist/
 .DS_Store
 *.pyc
 .playwright-mcp/
+sql_inputs/*
 *.png

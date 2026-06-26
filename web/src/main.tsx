@@ -4,6 +4,7 @@ import {
   Background,
   BaseEdge,
   Controls,
+  ReactFlowProvider,
   MarkerType,
   MiniMap,
   Position,
@@ -12,13 +13,18 @@ import {
   type EdgeProps,
   type Node,
   getBezierPath,
+  getNodesBounds,
+  getViewportForBounds,
   useEdgesState,
   useNodesState,
+  useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from 'dagre';
+import { toPng } from 'html-to-image';
 import {
   Braces,
+  Camera,
   Clipboard,
   Columns3,
   Download,
@@ -557,9 +563,40 @@ function downloadText(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
+function downloadDataUrl(filename: string, dataUrl: string) {
+  const link = document.createElement('a');
+  link.href = dataUrl;
+  link.download = filename;
+  link.click();
+}
+
+async function fetchJsonWithRetry(url: string, init: RequestInit, retries = 3) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      return await fetch(url, init);
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries - 1) {
+        await new Promise((resolve) => {
+          window.setTimeout(resolve, 250 * (attempt + 1));
+        });
+      }
+    }
+  }
+
+  throw new Error(
+    lastError instanceof Error
+      ? `Cannot reach the API at ${url}. Start the backend on port 8000.`
+      : `Cannot reach the API at ${url}.`,
+  );
+}
+
 function App() {
+  const reactFlow = useReactFlow<Node, Edge>();
   const [sql, setSql] = useState(exampleSql);
-  const [dialect, setDialect] = useState('spark');
+  const [dialect, setDialect] = useState('postgres');
   const [level, setLevel] = useState<LineageLevel>('column');
   const [expandColumns, setExpandColumns] = useState(false);
   const [exportKind, setExportKind] = useState<ExportKind>('list');
@@ -575,7 +612,7 @@ function App() {
     setLoading(true);
     setStatus('Parsing SQL');
     try {
-      const response = await fetch('/api/parse', {
+      const response = await fetchJsonWithRetry('/api/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sql, dialect, level }),
@@ -608,7 +645,7 @@ function App() {
             sql: await file.text(),
           })),
         );
-        const response = await fetch('/api/parse-multi', {
+        const response = await fetchJsonWithRetry('/api/parse-multi', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ files, dialect, level }),
@@ -683,6 +720,41 @@ function App() {
     setStatus(`${exportKind} copied`);
   }, [exportKind, exportText]);
 
+  const exportPng = useCallback(async () => {
+    const imageTarget = document.querySelector<HTMLElement>('.react-flow__viewport');
+    const flowNodes = reactFlow.getNodes();
+
+    if (!imageTarget || flowNodes.length === 0) {
+      setStatus('Parse SQL to export PNG');
+      return;
+    }
+
+    const padding = 96;
+    const bounds = getNodesBounds(flowNodes);
+    const width = Math.ceil(Math.max(bounds.width + padding * 2, 800));
+    const height = Math.ceil(Math.max(bounds.height + padding * 2, 600));
+    const { x, y, zoom } = getViewportForBounds(bounds, width, height, 0.2, 2, 0.08);
+
+    try {
+      setStatus('Rendering PNG');
+      const dataUrl = await toPng(imageTarget, {
+        width,
+        height,
+        backgroundColor: '#ffffff',
+        pixelRatio: 2,
+        style: {
+          width: `${width}px`,
+          height: `${height}px`,
+          transform: `translate(${x}px, ${y}px) scale(${zoom})`,
+        },
+      });
+      downloadDataUrl(`sqlflowlite-${level}-lineage.png`, dataUrl);
+      setStatus('PNG exported');
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'PNG export failed');
+    }
+  }, [level, reactFlow]);
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -698,7 +770,7 @@ function App() {
         </label>
         <select id="dialect" value={dialect} onChange={(event) => setDialect(event.target.value)}>
           <option value="spark">Spark</option>
-          <option value="postgres">Postgres</option>
+          <option value="postgres">PostgreSQL</option>
           <option value="snowflake">Snowflake</option>
           <option value="bigquery">BigQuery</option>
           <option value="redshift">Redshift</option>
@@ -819,6 +891,10 @@ function App() {
               </button>
             </div>
             <div className="export-actions">
+              <button type="button" onClick={exportPng} disabled={!result || nodes.length === 0}>
+                <Camera size={16} />
+                PNG
+              </button>
               <button type="button" onClick={copyExport} disabled={!exportText}>
                 <Clipboard size={16} />
                 Copy
@@ -864,6 +940,8 @@ function App() {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <ReactFlowProvider>
+      <App />
+    </ReactFlowProvider>
   </React.StrictMode>,
 );

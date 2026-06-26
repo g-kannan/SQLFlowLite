@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 import sqlglot
 from sqlglot import exp
@@ -16,9 +17,24 @@ class ParsedStatement:
     columns: list[dict[str, object]]
 
 
+def _extract_procedure_bodies(sql: str) -> str:
+    # Match CREATE [OR REPLACE] PROCEDURE/FUNCTION <name> (...) [LANGUAGE ...] AS $tag$ <body_content> $tag$
+    # Also consume any trailing clauses up to the ending semicolon.
+    pattern = r'(?:CREATE\s+(?:OR\s+REPLACE\s+)?(?:PROCEDURE|FUNCTION)\s+[\w\.]+\s*(?:\([^)]*\))?.*?AS\s+(\$[a-zA-Z0-9_]*\$))(.*?)\1[^;]*;?'
+    
+    def replace_match(match: re.Match) -> str:
+        body = match.group(2).strip()
+        body_clean = re.sub(r'^BEGIN\s+', '', body, flags=re.IGNORECASE)
+        body_clean = re.sub(r'\s+END;?$', '', body_clean, flags=re.IGNORECASE)
+        return body_clean.strip()
+
+    return re.sub(pattern, replace_match, sql, flags=re.DOTALL | re.IGNORECASE)
+
+
 def parse_lineage(sql: str, dialect: str | None = None) -> tuple[list[ParsedStatement], list[str]]:
     """Extract table and column lineage from SQL text without touching a database."""
     errors: list[str] = []
+    sql = _extract_procedure_bodies(sql)
     try:
         expressions = sqlglot.parse(sql, read=dialect or None)
     except Exception as exc:  # sqlglot raises dialect/parser-specific exceptions
@@ -188,9 +204,7 @@ def _column_lineage(
 def _query_expression(expression: exp.Expression) -> exp.Expression | None:
     if isinstance(expression, (exp.Create, exp.Insert)):
         return expression.expression
-    if isinstance(expression, exp.Select):
-        return expression
-    if isinstance(expression, exp.Subqueryable):
+    if isinstance(expression, (exp.Select, exp.Query, exp.DerivedTable)):
         return expression
     return None
 
