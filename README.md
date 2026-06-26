@@ -76,9 +76,9 @@ Backend:
 
 ```powershell
 cd api
-python -m venv .venv
+uv venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
